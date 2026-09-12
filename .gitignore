@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+data/raw/
+zeek-test/
+logs/
+output/
+*.log
+*.deb
