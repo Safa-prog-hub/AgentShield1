@@ -6,7 +6,7 @@ from normalizer import normalize_zeek_event, save_event
 
 
 ZEEK_LOG = os.path.expanduser(
-    "~/AgentShield/zeek-test/conn.log"
+    "~/AgentShield/zeek-native/conn.log"
 )
 
 
