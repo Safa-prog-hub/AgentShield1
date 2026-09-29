@@ -33,6 +33,8 @@ def follow_file(file_path):
             if not line:
                 time.sleep(0.5)
                 continue
+             
+
 
             yield line
 
@@ -260,6 +262,7 @@ def network_detection_loop(model, output):
             )
 
             print(
+                  
                 f"Threat: "
                 f"{result['threat']}"
             )
