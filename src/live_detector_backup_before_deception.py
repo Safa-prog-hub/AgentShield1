@@ -32,6 +32,7 @@ ALERT_COOLDOWN = 30
 failed_attempts = defaultdict(deque)
 last_alert = {}
 
+
 def enable_ssh_honeypot_redirect(source_ip):
     """
     Automatically redirect future SSH connections from a detected
@@ -42,30 +43,43 @@ def enable_ssh_honeypot_redirect(source_ip):
     """
 
     cowrie_port = "2222"
-    iptables = "/usr/sbin/iptables"
 
     # Check whether the rule already exists
     check_rule = [
-        iptables,
-        "-t", "nat",
-        "-C", "PREROUTING",
-        "-s", source_ip,
-        "-p", "tcp",
-        "--dport", "22",
-        "-j", "REDIRECT",
-        "--to-ports", cowrie_port
+        "iptables",
+        "-t",
+        "nat",
+        "-C",
+        "PREROUTING",
+        "-s",
+        source_ip,
+        "-p",
+        "tcp",
+        "--dport",
+        "22",
+        "-j",
+        "REDIRECT",
+        "--to-ports",
+        cowrie_port
     ]
 
     # Rule to add
     add_rule = [
-        iptables,
-        "-t", "nat",
-        "-A", "PREROUTING",
-        "-s", source_ip,
-        "-p", "tcp",
-        "--dport", "22",
-        "-j", "REDIRECT",
-        "--to-ports", cowrie_port
+        "iptables",
+        "-t",
+        "nat",
+        "-A",
+        "PREROUTING",
+        "-s",
+        source_ip,
+        "-p",
+        "tcp",
+        "--dport",
+        "22",
+        "-j",
+        "REDIRECT",
+        "--to-ports",
+        cowrie_port
     ]
 
     try:
@@ -73,8 +87,7 @@ def enable_ssh_honeypot_redirect(source_ip):
         check = subprocess.run(
             check_rule,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
+            stderr=subprocess.PIPE
         )
 
         if check.returncode == 0:
@@ -103,14 +116,22 @@ def enable_ssh_honeypot_redirect(source_ip):
             )
             return True
 
-        print("[DECEPTION ERROR] Failed to add iptables rule:")
-        print(result.stderr.strip())
+        print(
+            "[DECEPTION ERROR] Failed to add iptables rule:"
+        )
+        print(
+            result.stderr.strip()
+        )
 
         return False
 
     except Exception as error:
-        print("[DECEPTION ERROR]:", error)
+        print(
+            "[DECEPTION ERROR]:",
+            error
+        )
         return False
+
 
 def follow_file(file_path):
     """
