@@ -8,8 +8,16 @@ def correlate_event(event, incidents):
     """
     Correlate a detection event with an existing incident.
 
-    Events are grouped when they have the same source IP,
-    same threat type, and occur within the correlation window.
+    Events are grouped when they have:
+    - the same source IP
+    - the same threat type
+    - activity within the correlation window
+
+    The incident also maintains:
+    - event count
+    - first seen
+    - last seen
+    - event IDs
     """
 
     source_ip = event.get("source_ip")
@@ -24,39 +32,57 @@ def correlate_event(event, incidents):
 
     for incident in incidents:
 
-        if incident["source_ip"] != source_ip:
+        if incident.get("source_ip") != source_ip:
             continue
 
-        if incident["primary_threat"] != threat:
+        if incident.get("primary_threat") != threat:
             continue
 
         try:
             last_time = datetime.fromisoformat(
                 incident["last_seen"]
             )
-        except ValueError:
+        except (KeyError, ValueError):
             continue
 
         time_difference = abs(
-            event_time - last_time
-        ).total_seconds()
+            (event_time - last_time).total_seconds()
+        )
 
-        if 0 <= time_difference <= CORRELATION_WINDOW_SECONDS:
-            incident["event_count"] += 1
+        if time_difference <= CORRELATION_WINDOW_SECONDS:
 
-            if event_time < datetime.fromisoformat(incident["first_seen"]):
+            incident["event_count"] = (
+                int(incident.get("event_count", 0)) + 1
+            )
+
+            try:
+                first_time = datetime.fromisoformat(
+                    incident["first_seen"]
+                )
+
+                if event_time < first_time:
+                    incident["first_seen"] = event["timestamp"]
+
+            except (KeyError, ValueError):
                 incident["first_seen"] = event["timestamp"]
 
-            if event_time > datetime.fromisoformat(incident["last_seen"]):
+            if event_time > last_time:
                 incident["last_seen"] = event["timestamp"]
 
-            incident["event_ids"].append(
-                event.get("event_id")
-            )
+            event_id = event.get("event_id")
+
+            if event_id:
+                incident.setdefault(
+                    "event_ids",
+                    []
+                ).append(event_id)
 
             return incident
 
-    # No matching incident found → create a new incident.
+    # --------------------------------------------------------
+    # Create new incident
+    # --------------------------------------------------------
+
     incident = {
         "incident_id": f"INC-{len(incidents) + 1:04d}",
         "source_ip": source_ip,
