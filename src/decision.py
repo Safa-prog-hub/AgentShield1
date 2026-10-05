@@ -13,11 +13,11 @@ def make_decision(severity, threat=None, incident=None):
             incident.get("event_count", 1)
         )
 
-    # Critical threats require isolation.
+    # Critical threats are actively blocked.
     if severity == "CRITICAL":
-        return "ISOLATE"
+        return "BLOCK"
 
-    # Repeated high-severity activity should be blocked.
+    # High-severity activity should be blocked.
     if severity == "HIGH":
         return "BLOCK"
 
@@ -34,3 +34,16 @@ def make_decision(severity, threat=None, incident=None):
         return "ALLOW"
 
     return "MONITOR"
+
+
+
+
+
+
+
+
+
+
+
+
+
