@@ -428,7 +428,7 @@ def network_detection_loop(model, output):
 
                 result["threat"] = "PortScan"
 
-                result["confidence"] = round(
+                result["behavior_score"] = round(
                     scan_confidence,
                     4
                 )

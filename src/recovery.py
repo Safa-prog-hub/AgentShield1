@@ -1,29 +1,40 @@
-def recover_system(action, source_ip):
+def recover_system(action, source_ip, verification_status=None):
     """
-    Perform a controlled recovery action after a response.
-    The current prototype simulates recovery instead of
-    modifying the real system.
+    Simulate recovery only when the response is verified.
+    This prototype does not modify the real system.
     """
 
     if action in {"BLOCK", "ISOLATE"}:
+        if verification_status != "VERIFIED":
+            return {
+                "recovery_status": "NOT_VERIFIED",
+                "action": "NONE",
+                "target": source_ip,
+                "message": (
+                    f"Recovery not confirmed for {source_ip}: "
+                    "the response was not verified. "
+                    "No actual system recovery was performed."
+                )
+            }
+
         return {
-            "recovery_status": "COMPLETED",
+            "recovery_status": "SIMULATED",
             "action": "RESTORE_MONITORING",
             "target": source_ip,
             "message": (
-                f"Recovery completed for {source_ip}; "
-                "system returned to monitored state"
+                f"Recovery simulation completed for {source_ip}; "
+                "actual system restoration was not performed."
             )
         }
 
     if action == "MONITOR":
         return {
-            "recovery_status": "COMPLETED",
+            "recovery_status": "MONITORING",
             "action": "CONTINUE_MONITORING",
             "target": source_ip,
             "message": (
                 f"Monitoring continued for {source_ip}; "
-                "no additional recovery action required"
+                "no additional recovery action was performed."
             )
         }
 
@@ -31,7 +42,7 @@ def recover_system(action, source_ip):
         "recovery_status": "NOT_REQUIRED",
         "action": "NONE",
         "target": source_ip,
-        "message": "No recovery action required"
+        "message": "No recovery action required."
     }
 
 

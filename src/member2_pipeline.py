@@ -1,3 +1,4 @@
+
 import json
 import os
 
@@ -36,28 +37,33 @@ INCIDENT_FILE = os.getenv(
 
 def process_event(event, incident):
     """
-    Process one Member-1 detection through the
-    Member-2 analysis, response, deception,
-    verification, recovery and Cowrie evidence pipeline.
+    Process a detection through risk analysis, policy,
+    response, verification, deception, recovery and evidence.
     """
 
     threat = event.get("threat", "BENIGN")
     confidence = float(event.get("confidence", 0.0))
     source_ip = event.get("source_ip")
 
-    # ========================================================
-    # Behavioral Analysis
-    # ========================================================
-
+    # 1. Behavioral analysis
     behavior = None
 
     if threat == "PortScan":
-        behavior = analyze_port_scan_behavior(event,record_event=False)
+        behavior = analyze_port_scan_behavior(
+            event,
+            record_event=False
+        )
 
-    # ========================================================
-    # 1. Risk Analysis
-    # ========================================================
+        incoming_behavior_score = event.get("behavior_score")
 
+        if incoming_behavior_score is not None:
+            behavior = dict(behavior or {})
+            behavior["behavior_score"] = max(
+                0.0,
+                min(1.0, float(incoming_behavior_score))
+            )
+
+    # 2. Risk analysis
     risk_score, severity = calculate_risk(
         threat,
         confidence,
@@ -65,20 +71,14 @@ def process_event(event, incident):
         behavior
     )
 
-    # ========================================================
-    # 2. Decision
-    # ========================================================
-
+    # 3. Decision
     decision = make_decision(
         severity,
         threat,
         incident
     )
 
-    # ========================================================
-    # 3. Policy
-    # ========================================================
-
+    # 4. Policy
     policy_result = apply_policy(
         severity,
         decision,
@@ -86,60 +86,47 @@ def process_event(event, incident):
         incident
     )
 
-    # ========================================================
-    # 4. Response
-    # ========================================================
-
+    # 5. Response
     response_result = execute_response(
         policy_result["action"],
         source_ip
     )
 
-    # ========================================================
-    # 5. Verification
-    # ========================================================
-
+    # 6. Verification
     verification_result = verify_response(
         response_result
     )
 
-    # ========================================================
-    # 6. Adaptive Deception
-    # ========================================================
-
+    # 7. Adaptive deception
     deception_result = select_deception(
         threat,
         severity,
         source_ip
     )
 
-    # ========================================================
-    # 7. Recovery
-    # ========================================================
-
+    # 8. Recovery reporting
+    # Recovery receives the verification result.
+    # The recovery module must distinguish simulated recovery
+    # from actual system restoration.
     recovery_result = recover_system(
         response_result["action"],
-        source_ip
+        source_ip,
+        verification_result["verification_status"]
     )
 
-    # ========================================================
-    # 8. Cowrie Evidence
-    # ========================================================
-
+    # 9. Cowrie evidence
     cowrie_evidence = get_cowrie_evidence(
         source_ip
     )
 
-    # ========================================================
-    # Final Result
-    # ========================================================
-
+    # 10. Final incident result
     return {
         "event_id": event.get("event_id"),
         "incident_id": incident["incident_id"],
         "timestamp": event.get("timestamp"),
         "source_ip": source_ip,
         "destination_ip": event.get("destination_ip"),
+        "destination_port": event.get("destination_port"),
         "threat": threat,
         "confidence": confidence,
 
@@ -169,138 +156,97 @@ def process_event(event, incident):
         "decision": decision,
 
         # Policy
-        "policy_status": policy_result[
-            "policy_status"
-        ],
-        "policy_reason": policy_result[
-            "policy_reason"
-        ],
+        "policy_status": policy_result["policy_status"],
+        "policy_reason": policy_result.get("policy_reason"),
 
         # Response
-        "action": response_result[
-            "action"
-        ],
-        "response_status": response_result[
-            "response_status"
-        ],
+        "action": response_result["action"],
+        "response_status": response_result["response_status"],
+        "response_message": response_result.get("message"),
 
         # Verification
         "verification_status": verification_result[
             "verification_status"
         ],
+        "verification_message": verification_result.get(
+            "message",
+            "No verification message available"
+        ),
 
         # Deception
-        "deception_type": deception_result[
-            "deception_type"
-        ],
-        "deception_action": deception_result[
-            "action"
-        ],
+        "deception_type": deception_result.get(
+            "deception_type",
+            "NONE"
+        ),
+        "deception_action": deception_result.get(
+            "action",
+            "NONE"
+        ),
 
         # Recovery
-        "recovery_status": recovery_result[
-            "recovery_status"
-        ],
-        "recovery_action": recovery_result[
-            "action"
-        ],
+        "recovery_status": recovery_result["recovery_status"],
+        "recovery_action": recovery_result["action"],
+        "recovery_message": recovery_result.get("message"),
 
-        # Cowrie
-        "cowrie_evidence_found": cowrie_evidence[
-            "evidence_found"
-        ],
-        "cowrie_event_count": cowrie_evidence[
-            "event_count"
-        ],
-        "cowrie_commands": cowrie_evidence[
-            "commands"
-        ]
+        # Cowrie evidence
+        "cowrie_evidence_found": cowrie_evidence.get(
+            "evidence_found",
+            False
+        ),
+        "cowrie_event_count": cowrie_evidence.get(
+            "event_count",
+            0
+        ),
+        "cowrie_commands": cowrie_evidence.get(
+            "commands",
+            []
+        )
     }
 
 
 def load_state():
-    """
-    Load the number of input lines already processed.
-    """
+    """Load the number of input lines already processed."""
 
     if not os.path.exists(STATE_FILE):
         return 0
 
-    with open(
-        STATE_FILE,
-        "r"
-    ) as state_file:
-
+    with open(STATE_FILE, "r") as state_file:
         content = state_file.read().strip()
 
-    if not content:
-        return 0
-
-    return int(content)
+    return int(content) if content else 0
 
 
 def save_state(line_number):
-    """
-    Save the number of input lines already processed.
-    """
+    """Save the number of input lines already processed."""
 
-    with open(
-        STATE_FILE,
-        "w"
-    ) as state_file:
-
-        state_file.write(
-            str(line_number)
-        )
+    with open(STATE_FILE, "w") as state_file:
+        state_file.write(str(line_number))
 
 
 def load_incidents():
-    """
-    Load existing incidents from the incident file.
-    """
+    """Load existing incidents from the incident file."""
 
     incidents = []
 
-    if not os.path.exists(
-        INCIDENT_FILE
-    ):
+    if not os.path.exists(INCIDENT_FILE):
         return incidents
 
-    with open(
-        INCIDENT_FILE,
-        "r"
-    ) as incident_file:
-
+    with open(INCIDENT_FILE, "r") as incident_file:
         for line in incident_file:
-
-            if not line.strip():
-                continue
-
-            incidents.append(
-                json.loads(line)
-            )
+            if line.strip():
+                incidents.append(json.loads(line))
 
     return incidents
 
 
 def save_incident(incident):
-    """
-    Append an incident record to the incident log.
-    """
+    """Append a new incident record."""
 
-    with open(
-        INCIDENT_FILE,
-        "a"
-    ) as incident_file:
-
-        incident_file.write(
-            json.dumps(incident)
-            + "\n"
-        )
+    with open(INCIDENT_FILE, "a") as incident_file:
+        incident_file.write(json.dumps(incident) + "\n")
 
 
 def main():
-
     print("\n======================================")
     print(" AgentShield Member-2 Pipeline")
     print("======================================\n")
@@ -308,27 +254,22 @@ def main():
     processed_lines = load_state()
     incidents = load_incidents()
 
-    print(
-        f"Previously processed input lines: "
-        f"{processed_lines}"
-    )
+    print(f"Previously processed input lines: {processed_lines}")
 
     current_line = 0
     new_events = 0
 
-    with open(
-        INPUT_FILE,
-        "r"
-    ) as input_file, open(
-        OUTPUT_FILE,
-        "a"
-    ) as output_file:
+    os.makedirs(os.path.dirname(OUTPUT_FILE) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(STATE_FILE) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(INCIDENT_FILE) or ".", exist_ok=True)
+
+    with open(INPUT_FILE, "r") as input_file, \
+            open(OUTPUT_FILE, "a") as output_file:
 
         for line in input_file:
-
             current_line += 1
 
-            # Skip previously processed events
+            # Skip previously processed input lines.
             if current_line <= processed_lines:
                 continue
 
@@ -337,213 +278,68 @@ def main():
 
             event = json.loads(line)
 
-            # Ignore benign events
+            # Ignore benign detections.
             if event.get("threat") == "BENIGN":
                 continue
 
-            # =================================================
-            # Incident Correlation
-            # =================================================
+            # Correlate the event with an incident.
+            incident = correlate_event(event, incidents)
 
-            incident = correlate_event(
-                event,
-                incidents
-            )
+            # Process the event.
+            result = process_event(event, incident)
 
-            # =================================================
-            # Member-2 Processing
-            # =================================================
-
-            result = process_event(
-                event,
-                incident
-            )
-
-            output_file.write(
-                json.dumps(result)
-                + "\n"
-            )
-
+            # Append result without overwriting history.
+            output_file.write(json.dumps(result) + "\n")
             output_file.flush()
 
-            # =================================================
-            # Save / Update Incident
-            # =================================================
-
+            # Save new or updated incident state.
             if incident["event_count"] == 1:
-
-                save_incident(
-                    incident
-                )
-
+                save_incident(incident)
             else:
-
-                with open(
-                    INCIDENT_FILE,
-                    "w"
-                ) as incident_file:
-
+                with open(INCIDENT_FILE, "w") as incident_file:
                     for existing_incident in incidents:
-
                         incident_file.write(
-                            json.dumps(
-                                existing_incident
-                            )
-                            + "\n"
+                            json.dumps(existing_incident) + "\n"
                         )
 
             new_events += 1
 
-            # =================================================
-            # Console Output
-            # =================================================
-
+            print("--------------------------------------")
+            print(f"Event ID        : {result['event_id']}")
+            print(f"Incident ID     : {result['incident_id']}")
+            print(f"Source IP       : {result['source_ip']}")
+            print(f"Threat          : {result['threat']}")
+            print(f"Confidence      : {result['confidence']:.2%}")
+            print(f"Behavior Score  : {result['behavior_score']}")
+            print(f"Unique Ports    : {result['unique_ports']}")
+            print(f"Connections     : {result['total_connections']}")
+            print(f"Scan Rate       : {result['scan_rate']}")
+            print(f"Risk Score      : {result['risk_score']:.2%}")
+            print(f"Severity        : {result['severity']}")
+            print(f"Decision        : {result['decision']}")
+            print(f"Policy          : {result['policy_status']}")
+            print(f"Policy Reason   : {result['policy_reason']}")
+            print(f"Action          : {result['action']}")
+            print(f"Response        : {result['response_status']}")
+            print(f"Response Detail : {result['response_message']}")
+            print(f"Verification    : {result['verification_status']}")
+            print(f"Verify Detail   : {result['verification_message']}")
+            print(f"Deception       : {result['deception_type']}")
+            print(f"Deception Act.  : {result['deception_action']}")
+            print(f"Recovery        : {result['recovery_status']}")
+            print(f"Recovery Act.   : {result['recovery_action']}")
+            print(f"Recovery Detail : {result['recovery_message']}")
+            print(f"Cowrie Evidence : {result['cowrie_evidence_found']}")
+            print(f"Cowrie Events   : {result['cowrie_event_count']}")
+            print(f"Cowrie Commands : {result['cowrie_commands']}")
             print("--------------------------------------")
 
-            print(
-                f"Event ID       : "
-                f"{result['event_id']}"
-            )
+    save_state(current_line)
 
-            print(
-                f"Incident ID    : "
-                f"{result['incident_id']}"
-            )
-
-            print(
-                f"Source IP      : "
-                f"{result['source_ip']}"
-            )
-
-            print(
-                f"Threat         : "
-                f"{result['threat']}"
-            )
-
-            print(
-                f"Confidence     : "
-                f"{result['confidence']:.2%}"
-            )
-
-            print(
-                f"Behavior Score : "
-                f"{result['behavior_score']}"
-            )
-
-            print(
-                f"Unique Ports   : "
-                f"{result['unique_ports']}"
-            )
-
-            print(
-                f"Connections    : "
-                f"{result['total_connections']}"
-            )
-
-            print(
-                f"Scan Rate      : "
-                f"{result['scan_rate']}"
-            )
-
-            print(
-                f"Risk Score     : "
-                f"{result['risk_score']:.2%}"
-            )
-
-            print(
-                f"Severity       : "
-                f"{result['severity']}"
-            )
-
-            print(
-                f"Decision       : "
-                f"{result['decision']}"
-            )
-
-            print(
-                f"Policy         : "
-                f"{result['policy_status']}"
-            )
-
-            print(
-                f"Policy Reason  : "
-                f"{result['policy_reason']}"
-            )
-
-            print(
-                f"Action         : "
-                f"{result['action']}"
-            )
-
-            print(
-                f"Response       : "
-                f"{result['response_status']}"
-            )
-
-            print(
-                f"Verification   : "
-                f"{result['verification_status']}"
-            )
-
-            print(
-                f"Deception      : "
-                f"{result['deception_type']}"
-            )
-
-            print(
-                f"Deception Act. : "
-                f"{result['deception_action']}"
-            )
-
-            print(
-                f"Recovery       : "
-                f"{result['recovery_status']}"
-            )
-
-            print(
-                f"Recovery Act.  : "
-                f"{result['recovery_action']}"
-            )
-
-            print(
-                f"Cowrie Evidence: "
-                f"{result['cowrie_evidence_found']}"
-            )
-
-            print(
-                f"Cowrie Events  : "
-                f"{result['cowrie_event_count']}"
-            )
-
-            print(
-                f"Cowrie Commands: "
-                f"{result['cowrie_commands']}"
-            )
-
-            print("--------------------------------------")
-
-    save_state(
-        current_line
-    )
-
-    print(
-        f"\nNew events processed: "
-        f"{new_events}"
-    )
-
-    print(
-        f"Input lines processed up to: "
-        f"{current_line}"
-    )
-
-    print(
-        f"Total incidents tracked: "
-        f"{len(incidents)}"
-    )
-
-    print(
-        "Member-2 pipeline completed.\n"
-    )
+    print(f"\nNew events processed: {new_events}")
+    print(f"Input lines processed up to: {current_line}")
+    print(f"Total incidents tracked: {len(incidents)}")
+    print("Member-2 pipeline completed.\n")
 
 
 if __name__ == "__main__":
