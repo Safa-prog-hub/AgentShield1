@@ -547,6 +547,217 @@ tr:hover {{
 </html>
 """
 
+def build_incidents_page(selected_id=None):
+    """Dedicated incident and response investigation view."""
+    incidents = read_jsonl(INCIDENT_FILE)
+    results = read_jsonl(RESULT_FILE)
+
+    latest_by_incident = {}
+    for result in results:
+        iid = result.get("incident_id")
+        if iid:
+            latest_by_incident[iid] = result
+
+    incidents.sort(
+        key=lambda item: str(item.get("last_seen", "")),
+        reverse=True
+    )
+
+    selected = next(
+        (item for item in incidents
+         if item.get("incident_id") == selected_id),
+        incidents[0] if incidents else None
+    )
+
+    selected_result = (
+        latest_by_incident.get(selected.get("incident_id"), {})
+        if selected else {}
+    )
+
+    def value(record, key, default="-"):
+        result = record.get(key, default)
+        return default if result is None or result == "" else result
+
+    def status_class(status):
+        status = str(status).upper()
+        if status in ("FAILED", "REJECTED", "DENIED"):
+            return "failed"
+        if status in ("VERIFIED", "COMPLETED", "APPROVED", "SUCCESS"):
+            return "success"
+        if status in ("PENDING", "REQUIRES_APPROVAL"):
+            return "pending"
+        return "neutral"
+
+    def detail(label, val):
+        text = escape(str(val))
+        css = status_class(val) if label in (
+            "Severity", "Policy status", "Response status",
+            "Verification", "Recovery status"
+        ) else "neutral"
+        return f"""
+        <div class="detail">
+            <span>{escape(label)}</span>
+            <strong class="{css}">{text}</strong>
+        </div>
+        """
+
+    rows = ""
+    for incident in incidents[:100]:
+        iid = str(value(incident, "incident_id"))
+        result = latest_by_incident.get(iid, {})
+        severity = str(value(result, "severity", "UNKNOWN"))
+        css = status_class(severity)
+        active = (
+            selected is not None
+            and iid == selected.get("incident_id")
+        )
+        rows += f"""
+        <tr class="{'selected' if active else ''}">
+            <td><a href="/incidents?id={escape(iid, quote=True)}">
+                {escape(iid)}</a></td>
+            <td>{escape(str(value(incident, "source_ip")))}</td>
+            <td>{escape(str(value(incident, "primary_threat")))}</td>
+            <td><span class="badge {css}">{escape(severity)}</span></td>
+            <td>{escape(str(value(result, "decision")))}</td>
+            <td><span class="badge {status_class(value(result, 'response_status'))}">
+                {escape(str(value(result, "response_status")))}</span></td>
+            <td><span class="badge {status_class(value(result, 'verification_status'))}">
+                {escape(str(value(result, "verification_status")))}</span></td>
+        </tr>
+        """
+
+    if not rows:
+        rows = '<tr><td colspan="7">No incidents recorded yet.</td></tr>'
+
+    details = ""
+    if selected:
+        iid = value(selected, "incident_id")
+        result = selected_result
+        confidence = result.get("confidence")
+        risk = result.get("risk_score")
+
+        confidence_text = (
+            f"{confidence * 100:.1f}%"
+            if isinstance(confidence, (int, float)) else "-"
+        )
+        risk_text = (
+            f"{risk * 100:.1f}%"
+            if isinstance(risk, (int, float)) else "-"
+        )
+
+        commands = result.get("cowrie_commands") or []
+        command_html = (
+            "".join(f"<li><code>{escape(str(cmd))}</code></li>"
+                    for cmd in commands)
+            if commands else "<li>No commands recorded for this result.</li>"
+        )
+
+        details = f"""
+        <section class="panel">
+            <h2>Incident {escape(str(iid))}</h2>
+            <div class="details">
+                {detail("Source IP", value(selected, "source_ip"))}
+                {detail("Threat", value(selected, "primary_threat"))}
+                {detail("Severity", value(result, "severity", "UNKNOWN"))}
+                {detail("Event count", value(selected, "event_count", 0))}
+                {detail("First seen", format_timestamp(value(selected, "first_seen")))}
+                {detail("Last seen", format_timestamp(value(selected, "last_seen")))}
+                {detail("Confidence", confidence_text)}
+                {detail("Risk score", risk_text)}
+            </div>
+
+            <h3>Decision and response</h3>
+            <div class="details">
+                {detail("Decision", value(result, "decision"))}
+                {detail("Policy status", value(result, "policy_status"))}
+                {detail("Policy reason", value(result, "policy_reason"))}
+                {detail("Response action", value(result, "action"))}
+                {detail("Response status", value(result, "response_status"))}
+                {detail("Verification", value(result, "verification_status"))}
+                {detail("Recovery status", value(result, "recovery_status"))}
+                {detail("Recovery action", value(result, "recovery_action"))}
+            </div>
+
+            <h3>Deception and forensic evidence</h3>
+            <div class="details">
+                {detail("Deception type", value(result, "deception_type"))}
+                {detail("Deception action", value(result, "deception_action"))}
+                {detail("Cowrie evidence found", value(result, "cowrie_evidence_found", False))}
+                {detail("Cowrie event count", value(result, "cowrie_event_count", 0))}
+            </div>
+            <ul>{command_html}</ul>
+        </section>
+        """
+    else:
+        details = '<section class="panel">No incident details available.</section>'
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="10">
+<title>AgentShield - Incident Management</title>
+<style>
+* {{ box-sizing:border-box; }}
+body {{ margin:0; background:#0b1120; color:#e5e7eb; font-family:Arial,sans-serif; }}
+header {{ background:#111827; padding:22px 30px; border-bottom:1px solid #263244; }}
+header h1 {{ margin:0; }}
+header p {{ color:#94a3b8; margin-bottom:0; }}
+nav {{ background:#0f172a; padding:14px 30px; display:flex; gap:24px; flex-wrap:wrap; }}
+nav a {{ color:#94a3b8; text-decoration:none; }}
+nav a.active, nav a:hover {{ color:#60a5fa; }}
+main {{ padding:24px 30px; }}
+.panel {{ background:#111827; border:1px solid #263244; border-radius:10px; padding:20px; margin-bottom:22px; overflow-x:auto; }}
+h2 {{ margin-top:0; }}
+h3 {{ margin-top:25px; }}
+table {{ width:100%; border-collapse:collapse; font-size:13px; }}
+th,td {{ padding:12px 10px; text-align:left; border-bottom:1px solid #263244; white-space:nowrap; }}
+th {{ color:#94a3b8; }}
+tr.selected {{ background:#172033; }}
+td a {{ color:#60a5fa; font-weight:bold; }}
+.details {{ display:grid; grid-template-columns:repeat(4,minmax(150px,1fr)); gap:12px; }}
+.detail {{ background:#0b1120; border:1px solid #263244; border-radius:7px; padding:13px; overflow-wrap:anywhere; }}
+.detail span {{ display:block; color:#94a3b8; font-size:12px; margin-bottom:8px; }}
+.detail strong {{ font-size:14px; }}
+.badge {{ display:inline-block; padding:5px 8px; border-radius:5px; font-size:11px; }}
+.failed {{ color:#fecaca; background:#7f1d1d; }}
+.success {{ color:#bbf7d0; background:#14532d; }}
+.pending {{ color:#fde68a; background:#78350f; }}
+.neutral {{ color:#cbd5e1; }}
+code {{ color:#93c5fd; }}
+footer {{ text-align:center; padding:20px; color:#64748b; font-size:12px; }}
+@media(max-width:900px) {{ .details {{ grid-template-columns:repeat(2,minmax(130px,1fr)); }} }}
+@media(max-width:550px) {{ main {{ padding:14px; }} .details {{ grid-template-columns:1fr; }} }}
+</style>
+</head>
+<body>
+<header>
+<h1>🛡 AgentShield SOC</h1>
+<p>Incident Investigation & Response Verification</p>
+</header>
+<nav>
+<a href="/">Overview</a>
+<a href="/incidents" class="active">Incidents</a>
+<a href="/deception">🪤 Deception Logs</a>
+<a href="/blocked">🚫 Blocked IPs</a>
+</nav>
+<main>
+<section class="panel">
+<h2>Incident Register</h2>
+<p>Select an incident ID to investigate its latest recorded decision, response, verification and forensic evidence.</p>
+<table>
+<thead><tr><th>Incident</th><th>Source IP</th><th>Threat</th><th>Severity</th><th>Decision</th><th>Response</th><th>Verification</th></tr></thead>
+<tbody>{rows}</tbody>
+</table>
+</section>
+{details}
+</main>
+<footer>AgentShield • Detect → Analyze → Decide → Act → Verify → Learn/Adapt • Refresh every 10 seconds</footer>
+</body>
+</html>
+"""
+
 
 
 def build_deception_page():
@@ -973,20 +1184,23 @@ This page reads the current iptables INPUT DROP rules, so it shows IP addresses 
 
 class DashboardHandler(BaseHTTPRequestHandler):
 
+    
     def do_GET(self):
+        from urllib.parse import urlparse, parse_qs
 
-        if self.path == "/deception":
+        parsed = urlparse(self.path)
+        route = parsed.path
+
+        if route == "/deception":
             content = build_deception_page().encode("utf-8")
-
-        elif self.path == "/blocked":
+        elif route == "/blocked":
             content = build_blocked_page().encode("utf-8")
-
-        elif self.path == "/incidents":
+        elif route == "/incidents":
+            params = parse_qs(parsed.query)
+            selected_id = params.get("id", [None])[0]
+            content = build_incidents_page(selected_id).encode("utf-8")
+        elif route == "/":
             content = build_page().encode("utf-8")
-
-        elif self.path == "/" or self.path.startswith("/?"):
-            content = build_page().encode("utf-8")
-
         else:
             self.send_response(404)
             self.end_headers()
@@ -1001,6 +1215,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.wfile.write(content)
         except BrokenPipeError:
             pass
+
 
     def log_message(self, format, *args):
         pass
