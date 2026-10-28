@@ -114,9 +114,28 @@ def process_event(event, incident):
         verification_result["verification_status"]
     )
 
-    # 9. Cowrie evidence
+        # 9. Cowrie evidence
+    # Include a small buffer before and after the incident window.
+    from datetime import timedelta
+    from cowrie_evidence import _parse_timestamp
+
+    incident_start = _parse_timestamp(incident.get("first_seen"))
+    incident_end = _parse_timestamp(incident.get("last_seen"))
+
+    evidence_since = (
+        incident_start - timedelta(minutes=1)
+        if incident_start else None
+    )
+
+    evidence_until = (
+        incident_end + timedelta(minutes=5)
+        if incident_end else None
+    )
+
     cowrie_evidence = get_cowrie_evidence(
-        source_ip
+        source_ip,
+        since=evidence_since.isoformat() if evidence_since else None,
+        until=evidence_until.isoformat() if evidence_until else None
     )
 
     # 10. Final incident result
@@ -199,6 +218,10 @@ def process_event(event, incident):
         ),
         "cowrie_commands": cowrie_evidence.get(
             "commands",
+            []
+        ),
+        "cowrie_session_ids": cowrie_evidence.get(
+            "session_ids",
             []
         )
     }
@@ -332,6 +355,7 @@ def main():
             print(f"Cowrie Evidence : {result['cowrie_evidence_found']}")
             print(f"Cowrie Events   : {result['cowrie_event_count']}")
             print(f"Cowrie Commands : {result['cowrie_commands']}")
+            print(f"Cowrie Sessions : {result['cowrie_session_ids']}")
             print("--------------------------------------")
 
     save_state(current_line)

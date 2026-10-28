@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime,timezone
 
 
 CORRELATION_WINDOW_SECONDS = 60
@@ -23,17 +23,27 @@ def parse_timestamp(timestamp):
         return None
 
     # Try ISO timestamp first
+    
+    # Try ISO timestamp first and normalize to UTC.
     try:
-        return datetime.fromisoformat(
-            str(timestamp)
+        parsed = datetime.fromisoformat(
+            str(timestamp).replace("Z", "+00:00")
         )
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+
+        return parsed.astimezone(timezone.utc)
+
     except (ValueError, TypeError):
         pass
+
 
     # Try Unix / Zeek timestamp
     try:
         return datetime.fromtimestamp(
-            float(timestamp)
+            float(timestamp),
+            tz=timezone.utc
         )
     except (ValueError, TypeError, OSError):
         return None
