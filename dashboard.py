@@ -743,6 +743,7 @@ footer {{ text-align:center; padding:20px; color:#64748b; font-size:12px; }}
 <a href="/blocked">🚫 Blocked IPs</a>
 </nav>
 <main>
+{details}
 <section class="panel">
 <h2>Incident Register</h2>
 <p>Select an incident ID to investigate its latest recorded decision, response, verification and forensic evidence.</p>
@@ -751,7 +752,6 @@ footer {{ text-align:center; padding:20px; color:#64748b; font-size:12px; }}
 <tbody>{rows}</tbody>
 </table>
 </section>
-{details}
 </main>
 <footer>AgentShield • Detect → Analyze → Decide → Act → Verify → Learn/Adapt • Refresh every 10 seconds</footer>
 </body>
